@@ -1,4 +1,3 @@
-
 import streamlit as st
 import relate
 import pandas as pd
@@ -19,9 +18,8 @@ st.set_page_config(
 )
 
 st.title("🌐 NEXORA")
-st.caption(
-    "Infrastructure Intelligence & Dependency Analysis"
-)
+st.caption("Infrastructure Intelligence & Dependency Analysis")
+
 
 # ==========================================
 # RELATE DATABASE QUERIES
@@ -63,12 +61,60 @@ def simulate_failure(asset_name):
         """, {"asset_name": asset_name}).data()
 
 
+def load_dependency_paths(asset_name):
+    with relate.connect(DATABASE) as db:
+        result = db.execute("""
+            MATCH p=(source:Asset {name: $asset_name})
+                  -[*1..]->(affected:Asset)
+            RETURN p
+        """, {"asset_name": asset_name})
+
+        rows = result.data()
+
+    paths = []
+
+    for row in rows:
+        path_data = row["p"].to_dict()
+
+        nodes = []
+
+        for node in path_data["nodes"]:
+            properties = node["properties"]
+
+            nodes.append({
+                "name": properties.get("name", "Unknown"),
+                "criticality": properties.get(
+                    "criticality", "Unknown"
+                ),
+                "status": properties.get(
+                    "status", "Unknown"
+                ),
+                "type": [
+                    label for label in node["labels"]
+                    if label != "Asset"
+                ]
+            })
+
+        relationships = [
+            relationship["type"]
+            for relationship in path_data["relationships"]
+        ]
+
+        paths.append({
+            "nodes": nodes,
+            "relationships": relationships
+        })
+
+    return paths
+
+
 # ==========================================
 # LOAD INFRASTRUCTURE DATA
 # ==========================================
 
 assets = load_assets()
 relationships = load_relationships()
+
 
 # ==========================================
 # INFRASTRUCTURE OVERVIEW
@@ -78,15 +124,8 @@ st.subheader("Infrastructure Overview")
 
 col1, col2, col3 = st.columns(3)
 
-col1.metric(
-    "Total Assets",
-    len(assets)
-)
-
-col2.metric(
-    "Relationships",
-    len(relationships)
-)
+col1.metric("Total Assets", len(assets))
+col2.metric("Relationships", len(relationships))
 
 col3.metric(
     "Critical Assets",
@@ -97,6 +136,7 @@ col3.metric(
 )
 
 st.divider()
+
 
 # ==========================================
 # DEPENDENCY EXPLORER
@@ -256,10 +296,8 @@ selected_asset = st.selectbox(
     )
 )
 
-if st.button(
-    "Simulate Failure",
-    type="primary"
-):
+
+if st.button("Simulate Failure", type="primary"):
 
     impacts = simulate_failure(selected_asset)
 
@@ -332,19 +370,15 @@ if st.button(
         )
 
         if critical_count >= 2 or impact_score >= 80:
-
             severity = "CRITICAL"
 
         elif critical_count >= 1 or impact_score >= 50:
-
             severity = "HIGH"
 
         elif impact_score >= 20:
-
             severity = "MODERATE"
 
         else:
-
             severity = "LOW"
 
         # ==================================
@@ -384,8 +418,73 @@ if st.button(
         )
 
         # ==================================
+        # DEPENDENCY PATH TRACING
+        # ==================================
+
+        st.divider()
+
+        st.subheader("🧭 Dependency Path Tracing")
+
+        st.write(
+            "Trace how a simulated failure propagates "
+            "through connected infrastructure assets."
+        )
+
+        paths = load_dependency_paths(selected_asset)
+
+        if paths:
+
+            st.success(
+                f"Relate identified {len(paths)} dependency path(s)."
+            )
+
+            for index, path in enumerate(paths, 1):
+
+                nodes = path["nodes"]
+                rels = path["relationships"]
+
+                destination = nodes[-1]["name"]
+
+                with st.expander(
+                    f"Path {index}: {selected_asset} → {destination}",
+                    expanded=(index == 1)
+                ):
+
+                    for node_index, node in enumerate(nodes):
+
+                        st.markdown(
+                            f"**{node_index + 1}. {node['name']}**"
+                        )
+
+                        st.caption(
+                            f"Type: {', '.join(node['type'])} | "
+                            f"Criticality: {node['criticality']} | "
+                            f"Status: {node['status']}"
+                        )
+
+                        if node_index < len(rels):
+
+                            st.markdown(
+                                f"↓ `{rels[node_index]}`"
+                            )
+
+        else:
+
+            st.info(
+                "No downstream dependency paths were found."
+            )
+
+        st.caption(
+            "Paths are retrieved from the Relate graph database. "
+            "They represent modeled dependencies, not verified "
+            "real-world outage propagation."
+        )
+
+        # ==================================
         # RECOMMENDED ACTIONS
         # ==================================
+
+        st.divider()
 
         st.markdown(
             "#### Recommended Investigation Steps"
@@ -429,4 +528,3 @@ st.caption(
     "Impact results are based on modeled dependencies, "
     "not live monitoring."
 )
-
