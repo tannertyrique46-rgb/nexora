@@ -1,0 +1,4 @@
+relate-db==1.2.0
+streamlit==1.67.0
+pandas==3.1.1
+pyvis==0.3.2
